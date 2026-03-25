@@ -340,6 +340,20 @@ class Btsow115Offline(_PluginBase):
         text = (event_data.get("text") or "").strip()
         if not text:
             return
+
+        # 支持 /btsow 命令格式
+        if text.lower().startswith("/btsow"):
+            keyword = text[6:].strip()
+            if keyword:
+                self.__search_and_reply(
+                    keyword=keyword,
+                    channel=event_data.get("channel"),
+                    source=event_data.get("source"),
+                    userid=event_data.get("userid"),
+                    trigger="/btsow"
+                )
+            return
+
         keyword = self.__extract_keyword(text)
         if keyword is None:
             return
