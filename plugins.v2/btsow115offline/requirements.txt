@@ -1,2 +1,2 @@
-p115client>=0.4.0
+p115client>=0.0.8
 httpx>=0.24.0
