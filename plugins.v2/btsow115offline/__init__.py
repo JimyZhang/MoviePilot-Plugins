@@ -27,7 +27,7 @@ class Btsow115Offline(_PluginBase):
     plugin_name = "BTSOW 115离线下载"
     plugin_desc = "根据消息关键字从 BTSOW 搜索磁力链接，支持选择后使用 115 网盘离线下载。"
     plugin_icon = "cloud_download.png"
-    plugin_version = "1.0.10"
+    plugin_version = "1.0.11"
     plugin_author = "jojo"
     author_url = ""
     plugin_config_prefix = "btsow115offline_"
@@ -676,7 +676,11 @@ class Btsow115Offline(_PluginBase):
 
         try:
             client = P115Client(self._cookies_115)
-            magnet = f"magnet:?xt=urn:btih:{info_hash}"
+            # 构建完整的磁力链接，添加 dn 参数（显示名称）
+            from urllib.parse import quote as url_quote
+            encoded_title = url_quote(title[:100])
+            magnet = f"magnet:?xt=urn:btih:{info_hash}&dn={encoded_title}"
+            logger.info(f"准备添加离线下载: {magnet}")
 
             # 获取目标目录 ID（如果配置了保存路径）
             cid = 0
