@@ -27,8 +27,8 @@ class Btsow115Offline(_PluginBase):
     plugin_name = "BTSOW 115离线下载"
     plugin_desc = "根据消息关键字从 BTSOW 搜索磁力链接，支持选择后使用 115 网盘离线下载。"
     plugin_icon = "cloud_download.png"
-    plugin_version = "1.0.8"
-    plugin_author = "zhangqing"
+    plugin_version = "1.0.9"
+    plugin_author = "jojo"
     author_url = ""
     plugin_config_prefix = "btsow115offline_"
     plugin_order = 30
@@ -685,10 +685,10 @@ class Btsow115Offline(_PluginBase):
                 cid = self.__get_or_create_folder(client, self._save_path)
 
             # 添加离线下载任务
-            result = client.offline_add_urls(
-                urls=[magnet],
-                cid=cid if cid else 0
-            )
+            result = client.offline_add_urls({
+                "urls": magnet,
+                "cid": cid if cid else 0
+            })
 
             if result.get("state") or result.get("errno") == 0:
                 self.__save_history(
