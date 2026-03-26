@@ -27,7 +27,7 @@ class Btsow115Offline(_PluginBase):
     plugin_name = "BTSOW 115离线下载"
     plugin_desc = "根据消息关键字从 BTSOW 搜索磁力链接，支持选择后使用 115 网盘离线下载。"
     plugin_icon = "cloud_download.png"
-    plugin_version = "1.0.5"
+    plugin_version = "1.0.7"
     plugin_author = "zhangqing"
     author_url = ""
     plugin_config_prefix = "btsow115offline_"
@@ -360,15 +360,25 @@ class Btsow115Offline(_PluginBase):
 
         # 支持 /btsow 命令格式
         if text.lower().startswith("/btsow"):
-            keyword = text[6:].strip()
-            if keyword:
-                self.__search_and_reply(
-                    keyword=keyword,
-                    channel=channel,
-                    source=source,
-                    userid=userid,
-                    trigger="/btsow"
-                )
+            param = text[6:].strip()
+            if param:
+                # 如果参数是数字，则作为选择处理（适配微信等不支持按钮的平台）
+                if param.isdigit():
+                    self.__handle_selection(
+                        selection=int(param),
+                        channel=channel,
+                        source=source,
+                        userid=userid
+                    )
+                else:
+                    # 否则作为关键词搜索
+                    self.__search_and_reply(
+                        keyword=param,
+                        channel=channel,
+                        source=source,
+                        userid=userid,
+                        trigger="/btsow"
+                    )
             return
 
         keyword = self.__extract_keyword(text)
@@ -524,6 +534,11 @@ class Btsow115Offline(_PluginBase):
             text_lines.append(f"{index}. {item['title']}")
             text_lines.append(f"   大小：{item['size']} | 文件数：{item['file_count']}")
             text_lines.append(f"   时间：{item['date']}")
+
+        # 添加提示信息（适配微信等不支持按钮的平台）
+        text_lines.append("")
+        text_lines.append("💡 提示：点击按钮选择，或回复 /btsow 数字 选择")
+        text_lines.append("   例如：/btsow 1 选择第一个结果")
 
         # 构建按钮（支持按钮的平台如 Telegram/Slack）
         buttons = []
