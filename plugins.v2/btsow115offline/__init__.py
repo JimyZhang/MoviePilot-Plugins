@@ -27,7 +27,7 @@ class Btsow115Offline(_PluginBase):
     plugin_name = "BTSOW 115离线下载"
     plugin_desc = "根据消息关键字从 BTSOW 搜索磁力链接，支持选择后使用 115 网盘离线下载。"
     plugin_icon = "cloud_download.png"
-    plugin_version = "1.0.9"
+    plugin_version = "1.0.10"
     plugin_author = "jojo"
     author_url = ""
     plugin_config_prefix = "btsow115offline_"
@@ -689,6 +689,7 @@ class Btsow115Offline(_PluginBase):
                 "urls": magnet,
                 "cid": cid if cid else 0
             })
+            logger.info(f"115 离线下载 API 返回: {result}")
 
             if result.get("state") or result.get("errno") == 0:
                 self.__save_history(
@@ -705,8 +706,8 @@ class Btsow115Offline(_PluginBase):
                     text=f"《{title[:50]}》已成功添加到 115 离线下载任务。"
                 )
             else:
-                error_msg = result.get("error", "未知错误")
-                logger.error(f"115 离线下载添加失败：{error_msg}")
+                error_msg = result.get("error") or result.get("message") or result.get("msg") or str(result)
+                logger.error(f"115 离线下载添加失败：{error_msg}, 完整返回: {result}")
                 self.post_message(
                     channel=channel,
                     userid=userid,
