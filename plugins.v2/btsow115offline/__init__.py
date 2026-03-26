@@ -334,10 +334,13 @@ class Btsow115Offline(_PluginBase):
     @eventmanager.register(EventType.UserMessage)
     def listen_user_message(self, event: Event):
         """监听普通消息"""
+        logger.info(f"Btsow115Offline 收到消息事件: enabled={self._enabled}, listen={self._listen_user_message}")
         if not self._enabled or not self._listen_user_message or not event:
+            logger.info(f"Btsow115Offline 跳过处理: enabled={self._enabled}, listen={self._listen_user_message}, event={event is not None}")
             return
         event_data = event.event_data or {}
         text = (event_data.get("text") or "").strip()
+        logger.info(f"Btsow115Offline 处理消息: text={text}")
         if not text:
             return
 
