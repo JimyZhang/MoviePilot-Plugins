@@ -27,7 +27,7 @@ class Btsow115Offline(_PluginBase):
     plugin_name = "BTSOW 115离线下载"
     plugin_desc = "根据消息关键字从 BTSOW 搜索磁力链接，支持选择后使用 115 网盘离线下载。"
     plugin_icon = "cloud_download.png"
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.5"
     plugin_author = "zhangqing"
     author_url = ""
     plugin_config_prefix = "btsow115offline_"
@@ -525,7 +525,7 @@ class Btsow115Offline(_PluginBase):
             text_lines.append(f"   大小：{item['size']} | 文件数：{item['file_count']}")
             text_lines.append(f"   时间：{item['date']}")
 
-        # 构建按钮
+        # 构建按钮（支持按钮的平台如 Telegram/Slack）
         buttons = []
         for index, item in enumerate(display_results, 1):
             callback = f"[PLUGIN]{self.__class__.__name__}|download|{item['hash']}|{item['title'][:50]}"
@@ -538,6 +538,10 @@ class Btsow115Offline(_PluginBase):
             "text": "取消",
             "callback_data": f"[PLUGIN]{self.__class__.__name__}|cancel"
         }])
+
+        # 对于不支持按钮的平台，添加提示信息
+        # 注意：微信等平台回复数字会被主程序拦截，无法使用数字选择
+        # 所以这里提示用户使用按钮，或者通过其他方式（如复制 magnet 链接）
 
         self.post_message(
             channel=channel,
