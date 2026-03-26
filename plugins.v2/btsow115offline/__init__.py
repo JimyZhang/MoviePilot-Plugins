@@ -344,15 +344,29 @@ class Btsow115Offline(_PluginBase):
         if not text:
             return
 
+        channel = event_data.get("channel")
+        source = event_data.get("source")
+        userid = event_data.get("userid")
+
+        # 检查是否是数字序号选择（用户回复数字来选择资源）
+        if text.isdigit():
+            self.__handle_selection(
+                selection=int(text),
+                channel=channel,
+                source=source,
+                userid=userid
+            )
+            return
+
         # 支持 /btsow 命令格式
         if text.lower().startswith("/btsow"):
             keyword = text[6:].strip()
             if keyword:
                 self.__search_and_reply(
                     keyword=keyword,
-                    channel=event_data.get("channel"),
-                    source=event_data.get("source"),
-                    userid=event_data.get("userid"),
+                    channel=channel,
+                    source=source,
+                    userid=userid,
                     trigger="/btsow"
                 )
             return
@@ -362,10 +376,54 @@ class Btsow115Offline(_PluginBase):
             return
         self.__search_and_reply(
             keyword=keyword,
-            channel=event_data.get("channel"),
-            source=event_data.get("source"),
-            userid=event_data.get("userid"),
+            channel=channel,
+            source=source,
+            userid=userid,
             trigger="消息前缀"
+        )
+
+    def __handle_selection(self, selection: int, channel, source, userid):
+        """处理用户的选择（回复数字序号）"""
+        # 获取用户的搜索缓存
+        cache = self.get_data(self._SEARCH_CACHE_KEY) or {}
+
+        # 查找该用户最近的搜索结果
+        user_cache_key = None
+        user_results = None
+        for key, value in cache.items():
+            if key.startswith(f"{userid}_"):
+                user_cache_key = key
+                user_results = value.get("results", [])
+                break
+
+        if not user_results:
+            self.post_message(
+                channel=channel,
+                source=source,
+                userid=userid,
+                title="选择失败",
+                text="没有找到您的搜索记录，请先发送「搜磁力 关键字」进行搜索。"
+            )
+            return
+
+        # 检查选择是否有效
+        if selection < 1 or selection > len(user_results):
+            self.post_message(
+                channel=channel,
+                source=source,
+                userid=userid,
+                title="选择无效",
+                text=f"请输入 1-{len(user_results)} 之间的数字。"
+            )
+            return
+
+        # 获取选中的资源
+        selected = user_results[selection - 1]
+        self.__do_offline_download(
+            info_hash=selected["hash"],
+            title=selected["title"],
+            channel=channel,
+            userid=userid
         )
 
     @eventmanager.register(EventType.MessageAction)
