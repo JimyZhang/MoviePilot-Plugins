@@ -27,7 +27,7 @@ class Btsow115Offline(_PluginBase):
     plugin_name = "BTSOW 115离线下载"
     plugin_desc = "根据消息关键字从 BTSOW 搜索磁力链接，支持选择后使用 115 网盘离线下载。"
     plugin_icon = "cloud_download.png"
-    plugin_version = "1.0.7"
+    plugin_version = "1.0.8"
     plugin_author = "zhangqing"
     author_url = ""
     plugin_config_prefix = "btsow115offline_"
@@ -323,13 +323,29 @@ class Btsow115Offline(_PluginBase):
         event_data = event.event_data or {}
         if event_data.get("action") != self._COMMAND_ACTION:
             return
-        self.__search_and_reply(
-            keyword=(event_data.get("arg_str") or "").strip(),
-            channel=event_data.get("channel"),
-            source=event_data.get("source"),
-            userid=event_data.get("user"),
-            trigger="/btsow"
-        )
+
+        param = (event_data.get("arg_str") or "").strip()
+        channel = event_data.get("channel")
+        source = event_data.get("source")
+        userid = event_data.get("user")
+
+        # 如果参数是数字，则作为选择处理（适配微信等不支持按钮的平台）
+        if param.isdigit():
+            self.__handle_selection(
+                selection=int(param),
+                channel=channel,
+                source=source,
+                userid=userid
+            )
+        elif param:
+            # 否则作为关键词搜索
+            self.__search_and_reply(
+                keyword=param,
+                channel=channel,
+                source=source,
+                userid=userid,
+                trigger="/btsow"
+            )
 
     @eventmanager.register(EventType.UserMessage)
     def listen_user_message(self, event: Event):
