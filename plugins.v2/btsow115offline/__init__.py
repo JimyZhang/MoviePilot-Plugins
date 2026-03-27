@@ -27,7 +27,7 @@ class Btsow115Offline(_PluginBase):
     plugin_name = "BTSOW 115离线下载"
     plugin_desc = "根据消息关键字从 BTSOW 搜索磁力链接，支持选择后使用 115 网盘离线下载。"
     plugin_icon = "cloud_download.png"
-    plugin_version = "1.0.15"
+    plugin_version = "1.0.17"
     plugin_author = "jojo"
     author_url = ""
     plugin_config_prefix = "btsow115offline_"
@@ -41,7 +41,7 @@ class Btsow115Offline(_PluginBase):
     _HISTORY_LIMIT = 20
     _SEARCH_CACHE_KEY = "search_cache"
     _CACHE_EXPIRE_SECONDS = 600  # 10分钟缓存
-    _BTSOW_BASE_URL = "https://so2.btsow.top"
+    _DEFAULT_BTSOW_URL = "https://so2.btsow.top"
 
     # 配置属性
     _enabled: bool = False
@@ -50,6 +50,7 @@ class Btsow115Offline(_PluginBase):
     _result_limit: int = 5
     _cookies_115: str = ""
     _save_path: str = ""
+    _btsow_url: str = ""
 
     def init_plugin(self, config: dict = None):
         self._enabled = False
@@ -58,6 +59,7 @@ class Btsow115Offline(_PluginBase):
         self._result_limit = 5
         self._cookies_115 = ""
         self._save_path = ""
+        self._btsow_url = self._DEFAULT_BTSOW_URL
 
         if not config:
             return
@@ -68,6 +70,7 @@ class Btsow115Offline(_PluginBase):
         self._result_limit = self.__safe_int(config.get("result_limit"), default=5, minimum=1, maximum=10)
         self._cookies_115 = config.get("cookies_115") or ""
         self._save_path = config.get("save_path") or ""
+        self._btsow_url = config.get("btsow_url") or self._DEFAULT_BTSOW_URL
 
     def get_state(self) -> bool:
         return self._enabled
@@ -156,6 +159,23 @@ class Btsow115Offline(_PluginBase):
                                 "component": "VCol",
                                 "props": {"cols": 12},
                                 "content": [{
+                                    "component": "VTextField",
+                                    "props": {
+                                        "model": "btsow_url",
+                                        "label": "BTSOW 搜索地址",
+                                        "placeholder": "https://so2.btsow.top"
+                                    }
+                                }]
+                            }
+                        ]
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [{
                                     "component": "VTextarea",
                                     "props": {
                                         "model": "cookies_115",
@@ -216,6 +236,7 @@ class Btsow115Offline(_PluginBase):
             "result_limit": 5,
             "cookies_115": "",
             "save_path": "",
+            "btsow_url": self._DEFAULT_BTSOW_URL,
             "prefixes": self._DEFAULT_PREFIXES
         }
 
@@ -586,7 +607,7 @@ class Btsow115Offline(_PluginBase):
     def __search_btsow(self, keyword: str) -> List[Dict[str, str]]:
         """从 BTSOW 搜索磁力链接"""
         results = []
-        url = f"{self._BTSOW_BASE_URL}/search?key={quote(keyword)}"
+        url = f"{self._btsow_url}/search?key={quote(keyword)}"
 
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -603,33 +624,39 @@ class Btsow115Offline(_PluginBase):
             logger.error(f"请求 BTSOW 失败：{e}")
             raise
 
-        # 解析 HTML
-        # 匹配磁力链接卡片
-        # <div class="card mb-4"><div class="card-body">...<span>标题</span>...magnet:?xt=urn:btih:hash...
-        card_pattern = r'<div class="card mb-4[^"]*"[^>]*>.*?<div class="card-body">(.*?)</div>\s*</div>\s*</div>'
+        # 解析 HTML - 匹配磁力链接卡片
+        card_pattern = r'<div class="card mb-4[^"]*"[^>]*>\s*<div class="card-body">(.*?)</div>\s*</div>'
         cards = re.findall(card_pattern, html, re.DOTALL)
 
         for card in cards:
             try:
-                # 提取标题
+                # 提取标题 - 在 <span> 标签内
                 title_match = re.search(r'<span[^>]*>(.*?)</span>', card, re.DOTALL)
-                title = title_match.group(1) if title_match else ""
-                title = re.sub(r'<[^>]+>', '', title).strip()
+                if not title_match:
+                    continue
+                title = re.sub(r'<[^>]*>', '', title_match.group(1)).strip()
 
-                # 提取磁力链接中的 hash
-                magnet_match = re.search(r'magnet:\?xt=urn:btih:([a-fA-F0-9]+)', card)
-                if not magnet_match:
-                    # 尝试从 /hash/ 链接提取
-                    hash_match = re.search(r'/hash/([a-fA-F0-9]+)', card)
-                    info_hash = hash_match.group(1) if hash_match else None
+                # 提取 hash - 优先从 "种子哈西" 提取
+                hash_match = re.search(r'种子哈西[：:]([A-Fa-f0-9]+)', card)
+                if hash_match:
+                    info_hash = hash_match.group(1)
                 else:
-                    info_hash = magnet_match.group(1)
+                    # 尝试从 magnet 链接提取
+                    magnet_match = re.search(r'magnet:\?xt=urn:btih:([a-fA-F0-9]+)', card)
+                    if magnet_match:
+                        info_hash = magnet_match.group(1)
+                    else:
+                        # 尝试从 /hash/ 链接提取
+                        hash_match2 = re.search(r'/hash/([a-fA-F0-9]+)', card)
+                        if not hash_match2:
+                            continue
+                        info_hash = hash_match2.group(1)
 
                 if not info_hash or not title:
                     continue
 
-                # 提取文件大小
-                size_match = re.search(r'文件大小[：:]\s*<[^>]*>([^<]+)</span>', card)
+                # 提取文件大小 - 在 <span class="text-warning"> 内
+                size_match = re.search(r'<span class="text-warning">([^<]+)</span>', card)
                 size = size_match.group(1).strip() if size_match else "未知"
 
                 # 提取文件数量
