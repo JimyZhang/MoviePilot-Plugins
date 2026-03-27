@@ -21,7 +21,7 @@ class MessageBtSearch(_PluginBase):
     # 插件版本
     plugin_version = "1.0.0"
     # 插件作者
-    plugin_author = "zhangqing"
+    plugin_author = "jojo"
     # 作者主页
     author_url = ""
     # 插件配置项ID前缀

@@ -27,7 +27,7 @@ class Btsow115Offline(_PluginBase):
     plugin_name = "BTSOW 115离线下载"
     plugin_desc = "根据消息关键字从 BTSOW 搜索磁力链接，支持选择后使用 115 网盘离线下载。"
     plugin_icon = "cloud_download.png"
-    plugin_version = "1.0.17"
+    plugin_version = "1.0.18"
     plugin_author = "jojo"
     author_url = ""
     plugin_config_prefix = "btsow115offline_"
@@ -494,11 +494,20 @@ class Btsow115Offline(_PluginBase):
         userid = event_data.get("userid")
 
         if action.startswith("download|"):
-            # 格式：download|hash|title
-            parts = action.split("|", 2)
-            if len(parts) >= 3:
+            # 格式：download|hash
+            parts = action.split("|", 1)
+            if len(parts) >= 2:
                 info_hash = parts[1]
-                title = parts[2]
+                # 从缓存中查找 title
+                title = self.__find_title_by_hash(info_hash, userid)
+                if not title:
+                    self.post_message(
+                        channel=channel,
+                        userid=userid,
+                        title="下载失败",
+                        text="未找到对应的搜索结果，请重新搜索"
+                    )
+                    return
                 self.__do_offline_download(
                     info_hash=info_hash,
                     title=title,
@@ -580,7 +589,8 @@ class Btsow115Offline(_PluginBase):
         # 构建按钮（支持按钮的平台如 Telegram/Slack）
         buttons = []
         for index, item in enumerate(display_results, 1):
-            callback = f"[PLUGIN]{self.__class__.__name__}|download|{item['hash']}|{item['title'][:50]}"
+            # 只传 hash，减少 callback_data 长度
+            callback = f"[PLUGIN]{self.__class__.__name__}|download|{item['hash']}"
             buttons.append([{
                 "text": f"{index}. {item['title'][:20]}...",
                 "callback_data": callback
@@ -680,6 +690,17 @@ class Btsow115Offline(_PluginBase):
                 continue
 
         return results
+
+    def __find_title_by_hash(self, info_hash: str, userid: str) -> Optional[str]:
+        """从缓存中根据 hash 查找标题"""
+        cache = self.get_data(self._SEARCH_CACHE_KEY) or {}
+        for key, value in cache.items():
+            if key.startswith(f"{userid}_"):
+                results = value.get("results", [])
+                for item in results:
+                    if item.get("hash", "").lower() == info_hash.lower():
+                        return item.get("title", "")
+        return None
 
     def __do_offline_download(self, info_hash: str, title: str, channel, userid):
         """执行 115 离线下载"""
