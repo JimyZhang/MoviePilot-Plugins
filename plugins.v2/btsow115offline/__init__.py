@@ -27,7 +27,7 @@ class Btsow115Offline(_PluginBase):
     plugin_name = "BTSOW 115离线下载"
     plugin_desc = "根据消息关键字从 BTSOW 搜索磁力链接，支持选择后使用 115 网盘离线下载。"
     plugin_icon = "cloud_download.png"
-    plugin_version = "1.0.19"
+    plugin_version = "1.0.20"
     plugin_author = "jojo"
     author_url = ""
     plugin_config_prefix = "btsow115offline_"
@@ -486,13 +486,13 @@ class Btsow115Offline(_PluginBase):
         callback_data = event_data.get("callback_data") or ""
 
         # 支持两种格式：
-        # 1. 新短格式：B115|d|hash 或 B115|c
-        # 2. 旧格式：[PLUGIN]Btsow115Offline|download|hash
-        if callback_data.startswith("B115|"):
+        # 1. 新短格式：[PLUGIN]B115|d|hash (约55字符)
+        # 2. 旧格式：[PLUGIN]Btsow115Offline|download|hash (约75字符)
+        if callback_data.startswith("[PLUGIN]B115|"):
             # 新短格式
-            parts = callback_data.split("|")
-            action = parts[1] if len(parts) > 1 else ""
-            info_hash = parts[2] if len(parts) > 2 else ""
+            parts = callback_data[13:].split("|")  # 去掉 "[PLUGIN]B115|"
+            action = parts[0] if parts else ""
+            info_hash = parts[1] if len(parts) > 1 else ""
         elif callback_data.startswith(f"[PLUGIN]{self.__class__.__name__}|"):
             # 旧格式（兼容）
             action_key = f"[PLUGIN]{self.__class__.__name__}|"
@@ -599,11 +599,11 @@ class Btsow115Offline(_PluginBase):
         text_lines.append("   例如：/btsow 1 选择第一个结果")
 
         # 构建按钮（支持按钮的平台如 Telegram/Slack）
-        # 注意：Telegram callback_data 限制 64 字节，使用短格式
-        # 短格式：B115|d|hash (约47字符)
+        # 注意：Telegram callback_data 限制 64 字节
+        # 格式：[PLUGIN]B115|d|hash (约55字符，在64字节内)
         buttons = []
         for index, item in enumerate(display_results, 1):
-            callback = f"B115|d|{item['hash']}"
+            callback = f"[PLUGIN]B115|d|{item['hash']}"
             buttons.append([{
                 "text": f"{index}. {item['title'][:20]}...",
                 "callback_data": callback
@@ -611,7 +611,7 @@ class Btsow115Offline(_PluginBase):
 
         buttons.append([{
             "text": "取消",
-            "callback_data": "B115|c"
+            "callback_data": "[PLUGIN]B115|c"
         }])
 
         # 对于不支持按钮的平台，添加提示信息
