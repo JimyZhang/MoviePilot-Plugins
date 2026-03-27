@@ -27,7 +27,7 @@ class Btsow115Offline(_PluginBase):
     plugin_name = "BTSOW 115离线下载"
     plugin_desc = "根据消息关键字从 BTSOW 搜索磁力链接，支持选择后使用 115 网盘离线下载。"
     plugin_icon = "cloud_download.png"
-    plugin_version = "1.0.20"
+    plugin_version = "1.0.21"
     plugin_author = "jojo"
     author_url = ""
     plugin_config_prefix = "btsow115offline_"
@@ -479,10 +479,6 @@ class Btsow115Offline(_PluginBase):
         if not self._enabled or not event:
             return
         event_data = event.event_data or {}
-        plugin_id = event_data.get("plugin_id")
-        if plugin_id != self.__class__.__name__:
-            return
-
         callback_data = event_data.get("callback_data") or ""
 
         # 支持两种格式：
