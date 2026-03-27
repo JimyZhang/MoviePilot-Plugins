@@ -15,11 +15,13 @@
         "name": "BTSOW 115离线下载",
         "description": "根据消息关键字从 BTSOW 搜索磁力链接,支持选择后使用 115 网盘离线下载。",
         "labels": "搜索,离线下载,115网盘",
-        "version": "1.0.21",
+        "version": "1.0.23",
         "icon": "cloud_download.png",
         "author": "jojo",
         "level": 1,
         "history": {
+            "v1.0.23": "补充分段日志，便于定位 Telegram 按钮回调后的卡顿位置",
+            "v1.0.22": "兼容 MessageAction 的 plugin_id/text 回调结构，修复 Telegram 按钮点击无响应",
             "v1.0.21": "修复按钮回调plugin_id检查逻辑",
             "v1.0.20": "修复callback_data格式兼容主程序",
             "v1.0.0": "首次发布，支持从 BTSOW 搜索磁力并添加到 115 离线下载"

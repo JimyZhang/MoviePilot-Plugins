@@ -27,7 +27,7 @@ class Btsow115Offline(_PluginBase):
     plugin_name = "BTSOW 115离线下载"
     plugin_desc = "根据消息关键字从 BTSOW 搜索磁力链接，支持选择后使用 115 网盘离线下载。"
     plugin_icon = "cloud_download.png"
-    plugin_version = "1.0.21"
+    plugin_version = "1.0.23"
     plugin_author = "jojo"
     author_url = ""
     plugin_config_prefix = "btsow115offline_"
@@ -473,49 +473,78 @@ class Btsow115Offline(_PluginBase):
             userid=userid
         )
 
+    def __parse_callback_payload(self, payload: str) -> Tuple[str, str]:
+        """解析按钮回调内容，返回动作和 info_hash。"""
+        payload = (payload or "").strip()
+        action_data = ""
+
+        if payload.startswith("[PLUGIN]B115|"):
+            action_data = payload[len("[PLUGIN]B115|"):]
+        elif payload.startswith(f"[PLUGIN]{self.__class__.__name__}|"):
+            action_data = payload[len(f"[PLUGIN]{self.__class__.__name__}|"):]
+        else:
+            action_data = payload
+
+        if not action_data:
+            return "", ""
+
+        parts = action_data.split("|")
+        action = parts[0].strip() if parts else ""
+        info_hash = parts[1].strip() if len(parts) > 1 else ""
+        return action, info_hash
+
+    def __parse_message_action(self, event_data: Dict[str, Any]) -> Tuple[str, str]:
+        """兼容主程序不同版本的 MessageAction 事件结构。"""
+        callback_data = (event_data.get("callback_data") or "").strip()
+        if callback_data:
+            return self.__parse_callback_payload(callback_data)
+
+        plugin_id = (event_data.get("plugin_id") or "").strip().lower()
+        text = (event_data.get("text") or "").strip()
+
+        if plugin_id:
+            if plugin_id not in {self.__class__.__name__.lower(), "b115"}:
+                return "", ""
+            return self.__parse_callback_payload(text)
+
+        if text.startswith("[PLUGIN]"):
+            return self.__parse_callback_payload(text)
+
+        return "", ""
+
     @eventmanager.register(EventType.MessageAction)
     def handle_button_click(self, event: Event):
         """处理按钮点击回调"""
         if not self._enabled or not event:
             return
         event_data = event.event_data or {}
-        callback_data = event_data.get("callback_data") or ""
+        logger.info(
+            f"Btsow115Offline 收到按钮事件: plugin_id={event_data.get('plugin_id')}, "
+            f"text={event_data.get('text')}, callback_data={event_data.get('callback_data')}"
+        )
 
-        # 支持两种格式：
-        # 1. 新短格式：[PLUGIN]B115|d|hash (约55字符)
-        # 2. 旧格式：[PLUGIN]Btsow115Offline|download|hash (约75字符)
-        if callback_data.startswith("[PLUGIN]B115|"):
-            # 新短格式
-            parts = callback_data[13:].split("|")  # 去掉 "[PLUGIN]B115|"
-            action = parts[0] if parts else ""
-            info_hash = parts[1] if len(parts) > 1 else ""
-        elif callback_data.startswith(f"[PLUGIN]{self.__class__.__name__}|"):
-            # 旧格式（兼容）
-            action_key = f"[PLUGIN]{self.__class__.__name__}|"
-            action_data = callback_data[len(action_key):]
-            parts = action_data.split("|")
-            action = parts[0] if parts else ""
-            info_hash = parts[1] if len(parts) > 1 else ""
-        else:
+        action, info_hash = self.__parse_message_action(event_data)
+        if not action:
+            logger.info("Btsow115Offline 忽略非本插件或无法识别的按钮回调")
             return
 
         channel = event_data.get("channel")
-        userid = event_data.get("userid")
+        userid = event_data.get("userid") or event_data.get("user")
+        logger.info(f"Btsow115Offline 按钮回调解析结果: action={action}, info_hash={info_hash}, userid={userid}")
 
         if action == "d" or action == "download":
             # 下载操作
             if not info_hash:
+                logger.warning("Btsow115Offline 下载按钮缺少 info_hash，已忽略")
                 return
             # 从缓存中查找 title
             title = self.__find_title_by_hash(info_hash, userid)
             if not title:
-                self.post_message(
-                    channel=channel,
-                    userid=userid,
-                    title="下载失败",
-                    text="未找到对应的搜索结果，请重新搜索"
+                logger.warning(
+                    f"Btsow115Offline 未命中搜索缓存，将直接按 hash 添加离线下载: "
+                    f"userid={userid}, info_hash={info_hash}"
                 )
-                return
+                title = f"磁力任务 {info_hash[:12]}"
             self.__do_offline_download(
                 info_hash=info_hash,
                 title=title,
@@ -732,19 +761,28 @@ class Btsow115Offline(_PluginBase):
             return
 
         try:
+            logger.info(
+                f"Btsow115Offline 开始执行离线下载: userid={userid}, "
+                f"title={title[:50]}, save_path={self._save_path or '/'}"
+            )
+            logger.info("Btsow115Offline 正在初始化 P115Client")
             client = P115Client(self._cookies_115)
+            logger.info("Btsow115Offline P115Client 初始化完成")
             # 构建磁力链接
             magnet = f"magnet:?xt=urn:btih:{info_hash}"
-            logger.info(f"准备添加离线下载: {magnet}")
+            logger.info(f"Btsow115Offline 准备添加离线下载: {magnet}")
 
             # 获取目标目录 ID（如果配置了保存路径）
             cid = 0
             if self._save_path:
                 # 尝试获取或创建目录
+                logger.info(f"Btsow115Offline 正在解析保存目录: {self._save_path}")
                 cid = self.__get_or_create_folder(client, self._save_path)
+                logger.info(f"Btsow115Offline 保存目录解析完成: cid={cid}")
 
             # 添加离线下载任务
             # 参数: url - 磁力链接, wp_path_id - 目标目录ID
+            logger.info(f"Btsow115Offline 正在调用 offline_add_url: cid={cid}")
             if cid:
                 result = client.offline_add_url({
                     "url": magnet,
@@ -752,7 +790,7 @@ class Btsow115Offline(_PluginBase):
                 })
             else:
                 result = client.offline_add_url(magnet)
-            logger.info(f"115 离线下载 API 返回: {result}")
+            logger.info(f"Btsow115Offline 115 离线下载 API 返回: {result}")
 
             if result.get("state") or result.get("errno") == 0:
                 self.__save_history(
