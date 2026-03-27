@@ -15,7 +15,7 @@
         "name": "BTSOW 115离线下载",
         "description": "根据消息关键字从 BTSOW 搜索磁力链接,支持选择后使用 115 网盘离线下载。",
         "labels": "搜索,离线下载,115网盘",
-        "version": "1.0.18",
+        "version": "1.0.19",
         "icon": "cloud_download.png",
         "author": "jojo",
         "level": 1,
@@ -38,7 +38,8 @@
             "v1.0.15": "fix bug",
             "v1.0.16": "修复BTSOW搜索结果解析",
             "v1.0.17": "BTSOW搜索地址可配置",
-            "v1.0.18": "修复Telegram按钮callback_data过长导致发送失败"
+            "v1.0.18": "修复Telegram按钮callback_data过长导致发送失败",
+            "v1.0.19": "使用短格式callback_data适配Telegram 64字节限制"
         }
     }
 }

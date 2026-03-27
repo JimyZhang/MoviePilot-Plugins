@@ -27,7 +27,7 @@ class Btsow115Offline(_PluginBase):
     plugin_name = "BTSOW 115离线下载"
     plugin_desc = "根据消息关键字从 BTSOW 搜索磁力链接，支持选择后使用 115 网盘离线下载。"
     plugin_icon = "cloud_download.png"
-    plugin_version = "1.0.18"
+    plugin_version = "1.0.19"
     plugin_author = "jojo"
     author_url = ""
     plugin_config_prefix = "btsow115offline_"
@@ -484,37 +484,49 @@ class Btsow115Offline(_PluginBase):
             return
 
         callback_data = event_data.get("callback_data") or ""
-        action_key = f"[PLUGIN]{self.__class__.__name__}|"
 
-        if not callback_data.startswith(action_key):
+        # 支持两种格式：
+        # 1. 新短格式：B115|d|hash 或 B115|c
+        # 2. 旧格式：[PLUGIN]Btsow115Offline|download|hash
+        if callback_data.startswith("B115|"):
+            # 新短格式
+            parts = callback_data.split("|")
+            action = parts[1] if len(parts) > 1 else ""
+            info_hash = parts[2] if len(parts) > 2 else ""
+        elif callback_data.startswith(f"[PLUGIN]{self.__class__.__name__}|"):
+            # 旧格式（兼容）
+            action_key = f"[PLUGIN]{self.__class__.__name__}|"
+            action_data = callback_data[len(action_key):]
+            parts = action_data.split("|")
+            action = parts[0] if parts else ""
+            info_hash = parts[1] if len(parts) > 1 else ""
+        else:
             return
 
-        action = callback_data[len(action_key):]
         channel = event_data.get("channel")
         userid = event_data.get("userid")
 
-        if action.startswith("download|"):
-            # 格式：download|hash
-            parts = action.split("|", 1)
-            if len(parts) >= 2:
-                info_hash = parts[1]
-                # 从缓存中查找 title
-                title = self.__find_title_by_hash(info_hash, userid)
-                if not title:
-                    self.post_message(
-                        channel=channel,
-                        userid=userid,
-                        title="下载失败",
-                        text="未找到对应的搜索结果，请重新搜索"
-                    )
-                    return
-                self.__do_offline_download(
-                    info_hash=info_hash,
-                    title=title,
+        if action == "d" or action == "download":
+            # 下载操作
+            if not info_hash:
+                return
+            # 从缓存中查找 title
+            title = self.__find_title_by_hash(info_hash, userid)
+            if not title:
+                self.post_message(
                     channel=channel,
-                    userid=userid
+                    userid=userid,
+                    title="下载失败",
+                    text="未找到对应的搜索结果，请重新搜索"
                 )
-        elif action == "cancel":
+                return
+            self.__do_offline_download(
+                info_hash=info_hash,
+                title=title,
+                channel=channel,
+                userid=userid
+            )
+        elif action == "c" or action == "cancel":
             self.post_message(
                 channel=channel,
                 userid=userid,
@@ -587,10 +599,11 @@ class Btsow115Offline(_PluginBase):
         text_lines.append("   例如：/btsow 1 选择第一个结果")
 
         # 构建按钮（支持按钮的平台如 Telegram/Slack）
+        # 注意：Telegram callback_data 限制 64 字节，使用短格式
+        # 短格式：B115|d|hash (约47字符)
         buttons = []
         for index, item in enumerate(display_results, 1):
-            # 只传 hash，减少 callback_data 长度
-            callback = f"[PLUGIN]{self.__class__.__name__}|download|{item['hash']}"
+            callback = f"B115|d|{item['hash']}"
             buttons.append([{
                 "text": f"{index}. {item['title'][:20]}...",
                 "callback_data": callback
@@ -598,7 +611,7 @@ class Btsow115Offline(_PluginBase):
 
         buttons.append([{
             "text": "取消",
-            "callback_data": f"[PLUGIN]{self.__class__.__name__}|cancel"
+            "callback_data": "B115|c"
         }])
 
         # 对于不支持按钮的平台，添加提示信息
