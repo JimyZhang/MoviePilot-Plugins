@@ -781,15 +781,17 @@ class Btsow115Offline(_PluginBase):
                 logger.info(f"Btsow115Offline 保存目录解析完成: cid={cid}")
 
             # 添加离线下载任务
-            # 参数: url - 磁力链接, wp_path_id - 目标目录ID
-            logger.info(f"Btsow115Offline 正在调用 offline_add_url: cid={cid}")
+            # 参数: urls - 磁力链接, wp_path_id - 目标目录ID
+            # 注: p115client 0.0.9.x 起 offline_add_url 被重命名为 clouddownload_task_add_urls，
+            # 且 payload 字段由 "url" 改为 "urls"
+            logger.info(f"Btsow115Offline 正在调用 clouddownload_task_add_urls: cid={cid}")
             if cid:
-                result = client.offline_add_url({
-                    "url": magnet,
+                result = client.clouddownload_task_add_urls({
+                    "urls": magnet,
                     "wp_path_id": cid
                 })
             else:
-                result = client.offline_add_url(magnet)
+                result = client.clouddownload_task_add_urls(magnet)
             logger.info(f"Btsow115Offline 115 离线下载 API 返回: {result}")
 
             if result.get("state") or result.get("errno") == 0:
