@@ -26,5 +26,20 @@
             "v1.0.20": "修复callback_data格式兼容主程序",
             "v1.0.0": "首次发布，支持从 BTSOW 搜索磁力并添加到 115 离线下载"
         }
+    },
+    {
+      "P115StrgmSubV2": {
+        "name": "115网盘订阅追更V2",
+        "release": true,
+        "description": "结合MoviePilot订阅功能，自动搜索115网盘资源并转存缺失剧集。",
+        "labels": "订阅,115网盘",
+        "version": "1.0.0",
+        "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/cloud.png",
+        "author": "jojo",
+        "level": 1,
+        "history": {
+          "v1.0.0": "1. 更新115依赖"
+        }
+      }
     }
 }
