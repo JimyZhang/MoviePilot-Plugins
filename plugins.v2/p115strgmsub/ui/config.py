@@ -60,7 +60,33 @@ class UIConfig:
             return []
 
     @staticmethod
-    def get_form() -> Tuple[List[dict], Dict[str, Any]]:
+    def get_subscribe_options_grouped() -> List[Dict[str, Any]]:
+        """
+        获取按类型分组的订阅选项（用于洗版选择）
+        一级：电影订阅 / 电视剧订阅
+        二级：具体订阅名称
+        :return: [{'title': '电影名称', 'value': id, 'group': '电影订阅'}, ...]
+        """
+        try:
+            with SessionFactory() as db:
+                subscribes = SubscribeOper(db=db).list("N,R")
+            if not subscribes:
+                return []
+            items = []
+            for s in subscribes:
+                group = "电影订阅" if s.type == MediaType.MOVIE.value else "电视剧订阅"
+                if s.type == MediaType.TV.value:
+                    display = f"{s.name} ({s.year}) S{s.season or 1}" if s.year else f"{s.name} S{s.season or 1}"
+                else:
+                    display = f"{s.name} ({s.year})" if s.year else f"{s.name}"
+                items.append({"title": display, "value": s.id, "group": group})
+            return items
+        except Exception as e:
+            logger.error(f"获取洗版订阅列表失败: {e}")
+            return []
+
+    @staticmethod
+    def get_form(available_rule_groups: list = None) -> Tuple[List[dict], Dict[str, Any]]:
         """
         获取插件配置表单
         :return: (表单schema, 默认配置)
@@ -72,22 +98,6 @@ class UIConfig:
             {
                 'component': 'VForm',
                 'content': [
-                    # 插件说明
-                    {
-                        'component': 'VRow',
-                        'content': [{
-                            'component': 'VCol',
-                            'props': {'cols': 12},
-                            'content': [{
-                                'component': 'VAlert',
-                                'props': {
-                                    'type': 'info',
-                                    'variant': 'tonal',
-                                    'text': '自动搜索115网盘资源并转存缺失的电影和剧集，需配置115 Cookie和搜索服务。避免风控，固定执行周期为 8 小时。'
-                                }
-                            }]
-                        }]
-                    },
                     # 基本开关 + 执行周期
                     {
                         'component': 'VRow',
@@ -115,62 +125,7 @@ class UIConfig:
                         ]
                     },
 
-                    # 取消屏蔽后的站点选择/窗口期/延迟分钟（1.2.4 语义同步）
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
-                                'content': [{
-                                    'component': 'VSelect',
-                                    'props': {
-                                        'model': 'unblock_site_names',
-                                        'label': '取消屏蔽后订阅站点选择（多选）',
-                                        'items': site_name_items,
-                                        'multiple': True,
-                                        'chips': True,
-                                        'clearable': True,
-                                        'closable-chips': True,
-                                        'hint': '为空表示禁用窗口：始终保持屏蔽（仅115网盘）',
-                                        'persistent-hint': True
-                                    }
-                                }]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 3},
-                                'content': [{
-                                    'component': 'VTextField',
-                                    'props': {
-                                        'model': 'unblock_window_hours',
-                                        'label': '取消屏蔽窗口期（小时）',
-                                        'type': 'number',
-                                        'placeholder': '2',
-                                        'hint': '设为0表示禁用窗口：始终保持屏蔽（仅115网盘）',
-                                        'persistent-hint': True,
-                                        'clearable': True
-                                    }
-                                }]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 3},
-                                'content': [{
-                                    'component': 'VTextField',
-                                    'props': {
-                                        'model': 'unblock_delay_minutes',
-                                        'label': '每天最后一次任务后延迟（分钟）',
-                                        'type': 'number',
-                                        'placeholder': '5',
-                                        'hint': '设为-1表示禁用窗口：始终保持屏蔽（仅115网盘）；否则23:00兜底恢复系统订阅',
-                                        'persistent-hint': True,
-                                        'clearable': True
-                                    }
-                                }]
-                            }
-                        ]
-                    },
+
 
                     # 115网盘说明
                     {
@@ -200,160 +155,218 @@ class UIConfig:
                              'content': [{'component': 'VTextField', 'props': {'model': 'cookies', 'label': '115 Cookie', 'type': 'password', 'placeholder': 'UID=xxx; CID=xxx; SEID=xxx'}}]}
                         ]
                     },
-                    # 搜索源优先级
-                    {
-                        'component': 'VRow',
-                        'content': [{
-                            'component': 'VCol',
-                            'props': {'cols': 12},
-                            'content': [{
-                                'component': 'VSelect',
-                                'props': {
-                                    'model': 'search_source_order',
-                                    'label': '搜索源优先级（按选择顺序排序）',
-                                    'items': [
-                                        {'title': 'PanSou (盘搜)', 'value': 'pansou'},
-                                        {'title': 'HDHive (影巢)', 'value': 'hdhive'},
-                                        {'title': 'Nullbr', 'value': 'nullbr'}
-                                    ],
-                                    'multiple': True,
-                                    'chips': True,
-                                    'clearable': True,
-                                    'closable-chips': True,
-                                    'hint': '按选择的先后顺序依次搜索，前面的源搜到结果就不再查询后面的；留空使用默认优先级 Nullbr > HDHive > PanSou；未选入的已启用源会自动排在末尾',
-                                    'persistent-hint': True
-                                }
-                            }]
-                        }]
-                    },
-                    # PanSou说明
-                    {
-                        'component': 'VRow',
-                        'content': [{
-                            'component': 'VCol',
-                            'props': {'cols': 12},
-                            'content': [{
-                                'component': 'VAlert',
-                                'props': {'type': 'info', 'variant': 'tonal', 'text': 'PanSou搜索服务：网盘资源聚合搜索，用于搜索115网盘分享链接'}
-                            }]
-                        }]
-                    },
-                    # PanSou 配置
+                    # 接管时间段配置
                     {
                         'component': 'VRow',
                         'content': [
-                            {'component': 'VCol', 'props': {'cols': 6, 'md': 3},
-                             'content': [{'component': 'VSwitch', 'props': {'model': 'pansou_enabled', 'label': '启用 PanSou'}}]},
+                            {'component': 'VCol', 'props': {'cols': 12},
+                             'content': [{'component': 'VAlert', 'props': {'type': 'info', 'variant': 'tonal', 'text': '接管时间段配置：屏蔽系统订阅=ON时始终屏蔽；=OFF时按时间段判定'}}]}
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
                             {'component': 'VCol', 'props': {'cols': 12, 'md': 3},
-                             'content': [{'component': 'VTextField', 'props': {'model': 'pansou_url', 'label': 'PanSou API 地址', 'placeholder': 'https://your-pansou-api.com'}}]},
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6},
-                             'content': [{'component': 'VTextField', 'props': {'model': 'pansou_channels', 'label': 'TG 搜索频道', 'placeholder': '频道,用逗号分隔'}}]}
-                        ]
-                    },
-                    # PanSou 认证
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {'component': 'VCol', 'props': {'cols': 6, 'md': 3},
-                             'content': [{'component': 'VSwitch', 'props': {'model': 'pansou_auth_enabled', 'label': '启用认证'}}]},
+                             'content': [{'component': 'VTextField', 'props': {'model': 'block_start_time', 'label': '屏蔽态开始时间', 'placeholder': '18:00', 'hint': '屏蔽态内保持[-1]不变'}}]},
                             {'component': 'VCol', 'props': {'cols': 12, 'md': 3},
-                             'content': [{'component': 'VTextField', 'props': {'model': 'pansou_username', 'label': 'PanSou 用户名', 'placeholder': '启用认证时填写'}}]},
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6},
-                             'content': [{'component': 'VTextField', 'props': {"clearable": True, 'model': 'pansou_password', 'label': 'PanSou 密码', 'type': 'password', 'placeholder': '启用认证时填写'}}]}
+                             'content': [{'component': 'VTextField', 'props': {'model': 'block_end_time', 'label': '屏蔽态结束时间', 'placeholder': '23:59', 'hint': '支持跨天（如22:00~06:00）'}}]},
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3},
+                             'content': [{'component': 'VTextField', 'props': {'model': 'unblock_start_time', 'label': '开放态开始时间', 'placeholder': '00:00', 'hint': '开放态内自动恢复用户配置的站点'}}]},
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3},
+                             'content': [{'component': 'VTextField', 'props': {'model': 'unblock_end_time', 'label': '开放态结束时间', 'placeholder': '17:30', 'hint': '支持跨天（如20:00~06:00）'}}]}
                         ]
                     },
-                    # Nullbr说明
-                    # {
-                    #     'component': 'VRow',
-                    #     'content': [{
-                    #         'component': 'VCol',
-                    #         'props': {'cols': 12},
-                    #         'content': [{'component': 'VAlert', 'props': {'type': 'info', 'variant': 'tonal', 'text': 'Nullbr 资源查询：基于TMDB ID精准查询115网盘资源，准确度更高'}}]
-                    #     }]
-                    # },
-                    # Nullbr 配置
-                    # {
-                    #     'component': 'VRow',
-                    #     'content': [
-                    #         {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
-                    #          'content': [{'component': 'VSwitch', 'props': {'model': 'nullbr_enabled', 'label': '启用 Nullbr'}}]},
-                    #         {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
-                    #          'content': [{'component': 'VTextField', 'props': {'model': 'nullbr_appid', 'label': 'Nullbr APP ID', 'placeholder': '请输入 APP ID'}}]},
-                    #         {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
-                    #          'content': [{'component': 'VTextField', 'props': {"clearable": True, 'model': 'nullbr_api_key', 'label': 'Nullbr API Key', 'type': 'password', 'placeholder': '请输入 API Key'}}]}
-                    #     ]
-                    # },
-                    # HDHive说明
+                    # 搜索源模块（可折叠）
                     {
-                        'component': 'VRow',
+                        'component': 'VExpansionPanels',
+                        'props': {'variant': 'accordion', 'multiple': True},
                         'content': [{
-                            'component': 'VCol',
-                            'props': {'cols': 12},
-                            'content': [{'component': 'VAlert', 'props': {'type': 'info', 'variant': 'tonal', 'text': 'HDHive资源查询：基于TMDB ID查询115网盘资源。API模式使用OpenAPI应用查询；Playwright模式使用浏览器模拟获取分享链接（需安装 playwright 和 chromium）'}}]
-                        }]
-                    },
-                    # HDHive OpenAPI 接入说明
-                    {
-                        'component': 'VRow',
-                        'content': [{
-                            'component': 'VCol',
-                            'props': {'cols': 12},
-                            'content': [{'component': 'VAlert', 'props': {'type': 'warning', 'variant': 'tonal',
-                                'text': 'HDHive 已升级为 OpenAPI 应用 + OAuth 用户授权，旧个人 API Key 已失效。接入步骤：'
-                                        '① 在影巢申请 OpenAPI 应用（回调模式选 redirect，scope 勾选 query/unlock），获得 Client ID 和应用 Secret；'
-                                        '② 在下方填写 Client ID、应用 Secret、回调地址（须与应用配置一致）并保存；'
-                                        '③ 打开插件日志中输出的授权链接，登录影巢确认授权；'
-                                        '④ 授权后浏览器跳转到回调地址，复制地址栏中 code= 后面的授权码填入下方「授权码」并保存，插件会自动换取并维护用户 Token。'}}]
-                        }]
-                    },
-                    # HDHive 配置
-                    {
-                        'component': 'VRow',
-                        'content': [
-                             {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
-                             'content': [{'component': 'VSwitch', 'props': {'model': 'hdhive_enabled', 'label': '启用 HDHive'}}]},
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
-                             'content': [{'component': 'VSelect', 'props': {'model': 'hdhive_query_mode', 'label': '查询模式',
-                                 'items': [{'title': 'API 模式', 'value': 'api'}, {'title': 'Playwright 模式', 'value': 'playwright'}]}}]},
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
-                             'content': [{'component': 'VTextField', 'props': {"clearable": True, 'model': 'hdhive_client_id', 'label': 'HDHive Client ID', 'placeholder': 'OpenAPI 应用公开 ID（app_xxx）'}}]}
-                        ]
-                    },
-                    # HDHive OpenAPI 凭证
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
-                             'content': [{'component': 'VTextField', 'props': {"clearable": True, 'model': 'hdhive_api_key', 'label': 'HDHive 应用 Secret', 'type': 'password', 'placeholder': 'OpenAPI 应用 Secret（X-API-Key）'}}]},
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
-                             'content': [{'component': 'VTextField', 'props': {"clearable": True, 'model': 'hdhive_redirect_uri', 'label': '回调地址', 'placeholder': '须与 OpenAPI 应用配置完全一致'}}]},
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
-                             'content': [{'component': 'VTextField', 'props': {"clearable": True, 'model': 'hdhive_auth_code', 'label': '授权码', 'placeholder': '授权后回调地址中的 code 参数，保存后自动换取 Token',
-                                 'hint': '一次性使用，换取 Token 成功后自动清空', 'persistent-hint': True}}]}
-                        ]
-                    },
-                    # HDHive 账号密码配置
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
-                             'content': [{'component': 'VTextField', 'props': {'model': 'hdhive_username', 'label': 'HDHive 用户名', 'placeholder': 'Playwright 模式下需要'}}]},
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 5},
-                             'content': [{'component': 'VTextField', 'props': {"clearable": True, 'model': 'hdhive_password', 'label': 'HDHive 密码', 'type': 'password', 'placeholder': 'Playwright 模式下需要'}}]}
-                        ]
-                    },
-                    # HDHive 积分配置
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
-                             'content': [{'component': 'VSwitch', 'props': {'model': 'hdhive_auto_unlock', 'label': '自动解锁资源', 'hint': '关闭时仅查询免费资源'}}]},
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
-                             'content': [{'component': 'VTextField', 'props': {'model': 'hdhive_max_unlock_points', 'label': '累计解锁总预算', 'type': 'number', 'placeholder': '50', 'hint': '一次任务最多允许消耗的积分总和'}}]},
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
-                             'content': [{'component': 'VTextField', 'props': {'model': 'hdhive_max_points_per_sub', 'label': '单订阅解锁预算', 'type': 'number', 'placeholder': '20', 'hint': '处理单个订阅时允许消耗的最大积分'}}]}
-                        ]
-                    },
+                            'component': 'VExpansionPanel',
+                            'content': [
+                                {'component': 'VExpansionPanelTitle', 'text': '🔍 搜索源配置'},
+                                {'component': 'VExpansionPanelText', 'content': [
+                                    # 搜索源优先级
+                                    {
+                                        'component': 'VRow',
+                                        'content': [{
+                                            'component': 'VCol',
+                                            'props': {'cols': 12},
+                                            'content': [{
+                                                'component': 'VSelect',
+                                                'props': {
+                                                    'model': 'search_source_order',
+                                                    'label': '搜索源优先级（按选择顺序排序）',
+                                                    'items': [
+                                                        {'title': 'PanSou (盘搜)', 'value': 'pansou'},
+                                                        {'title': 'HDHive (影巢)', 'value': 'hdhive'},
+                                                        {'title': 'TG 频道/群', 'value': 'tg'}
+                                                    ],
+                                                    'multiple': True,
+                                                    'chips': True,
+                                                    'clearable': True,
+                                                    'closable-chips': True,
+                                                    'hint': '按选择的先后顺序依次搜索，前面的源搜到结果就不再查询后面的；留空使用默认优先级 HDHive > PanSou；未选入的已启用源会自动排在末尾',
+                                                    'persistent-hint': True
+                                                }
+                                            }]
+                                        }]
+                                    },
+                                    # PanSou说明
+                                    {
+                                        'component': 'VRow',
+                                        'content': [{
+                                            'component': 'VCol',
+                                            'props': {'cols': 12},
+                                            'content': [{
+                                                'component': 'VAlert',
+                                                'props': {'type': 'info', 'variant': 'tonal', 'text': 'PanSou搜索服务：网盘资源聚合搜索，用于搜索115网盘分享链接'}
+                                            }]
+                                        }]
+                                    },
+                                    # PanSou 配置
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {'component': 'VCol', 'props': {'cols': 6, 'md': 3},
+                                             'content': [{'component': 'VSwitch', 'props': {'model': 'pansou_enabled', 'label': '启用 PanSou'}}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3},
+                                             'content': [{'component': 'VTextField', 'props': {'model': 'pansou_url', 'label': 'PanSou API 地址', 'placeholder': 'https://your-pansou-api.com'}}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6},
+                                             'content': [{'component': 'VTextField', 'props': {'model': 'pansou_channels', 'label': 'TG 搜索频道', 'placeholder': '频道,用逗号分隔'}}]}
+                                        ]
+                                    },
+                                    # PanSou 认证
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {'component': 'VCol', 'props': {'cols': 6, 'md': 3},
+                                             'content': [{'component': 'VSwitch', 'props': {'model': 'pansou_auth_enabled', 'label': '启用认证'}}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3},
+                                             'content': [{'component': 'VTextField', 'props': {'model': 'pansou_username', 'label': 'PanSou 用户名', 'placeholder': '启用认证时填写'}}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6},
+                                             'content': [{'component': 'VTextField', 'props': {"clearable": True, 'model': 'pansou_password', 'label': 'PanSou 密码', 'type': 'password', 'placeholder': '启用认证时填写'}}]}
+                                        ]
+                                    },
+                                    # HDHive说明
+                                    {
+                                        'component': 'VRow',
+                                        'content': [{
+                                            'component': 'VCol',
+                                            'props': {'cols': 12},
+                                            'content': [{'component': 'VAlert', 'props': {'type': 'info', 'variant': 'tonal', 'text': 'HDHive资源查询：基于TMDB ID查询115网盘资源。API模式使用OpenAPI应用查询；Playwright模式使用浏览器模拟获取分享链接（需安装 playwright 和 chromium）'}}]
+                                        }]
+                                    },
+                                    # HDHive OpenAPI 接入说明
+                                    {
+                                        'component': 'VRow',
+                                        'content': [{
+                                            'component': 'VCol',
+                                            'props': {'cols': 12},
+                                            'content': [{'component': 'VAlert', 'props': {'type': 'warning', 'variant': 'tonal',
+                                                'text': 'HDHive 已升级为 OpenAPI 应用 + OAuth 用户授权，旧个人 API Key 已失效。接入步骤：'
+                                                        '① 在影巢申请 OpenAPI 应用（回调模式选 redirect，scope 勾选 query/unlock），获得 Client ID 和应用 Secret；'
+                                                        '② 在下方填写 Client ID、应用 Secret、回调地址（须与应用配置一致）并保存；'
+                                                        '③ 打开插件日志中输出的授权链接，登录影巢确认授权；'
+                                                        '④ 授权后浏览器跳转到回调地址，复制地址栏中 code= 后面的授权码填入下方「授权码」并保存，插件会自动换取并维护用户 Token。'}}]
+                                        }]
+                                    },
+                                    # HDHive 配置
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                             {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VSwitch', 'props': {'model': 'hdhive_enabled', 'label': '启用 HDHive'}}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VSelect', 'props': {'model': 'hdhive_query_mode', 'label': '查询模式',
+                                                 'items': [{'title': 'API 模式', 'value': 'api'}, {'title': 'Playwright 模式', 'value': 'playwright'}]}}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VTextField', 'props': {"clearable": True, 'model': 'hdhive_client_id', 'label': 'HDHive Client ID', 'placeholder': 'OpenAPI 应用公开 ID（app_xxx）'}}]}
+                                        ]
+                                    },
+                                    # HDHive OpenAPI 凭证
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VTextField', 'props': {"clearable": True, 'model': 'hdhive_api_key', 'label': 'HDHive 应用 Secret', 'type': 'password', 'placeholder': 'OpenAPI 应用 Secret（X-API-Key）'}}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VTextField', 'props': {"clearable": True, 'model': 'hdhive_redirect_uri', 'label': '回调地址', 'placeholder': '须与 OpenAPI 应用配置完全一致'}}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VTextField', 'props': {"clearable": True, 'model': 'hdhive_auth_code', 'label': '授权码', 'placeholder': '授权后回调地址中的 code 参数，保存后自动换取 Token',
+                                                 'hint': '一次性使用，换取 Token 成功后自动清空', 'persistent-hint': True}}]}
+                                        ]
+                                    },
+                                    # HDHive 账号密码配置
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VTextField', 'props': {'model': 'hdhive_username', 'label': 'HDHive 用户名', 'placeholder': 'Playwright 模式下需要'}}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 5},
+                                             'content': [{'component': 'VTextField', 'props': {"clearable": True, 'model': 'hdhive_password', 'label': 'HDHive 密码', 'type': 'password', 'placeholder': 'Playwright 模式下需要'}}]}
+                                        ]
+                                    },
+                                    # HDHive 积分配置
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VSwitch', 'props': {'model': 'hdhive_auto_unlock', 'label': '自动解锁资源', 'hint': '关闭时仅查询免费资源'}}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VTextField', 'props': {'model': 'hdhive_max_unlock_points', 'label': '累计解锁总预算', 'type': 'number', 'placeholder': '50', 'hint': '一次任务最多允许消耗的积分总和'}}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VTextField', 'props': {'model': 'hdhive_max_points_per_sub', 'label': '单订阅解锁预算', 'type': 'number', 'placeholder': '20', 'hint': '处理单个订阅时允许消耗的最大积分'}}]}
+                                        ]
+                                    },
+                                    # TG 频道/群搜索
+                                    {
+                                        'component': 'VRow',
+                                        'content': [{
+                                            'component': 'VCol',
+                                            'props': {'cols': 12},
+                                            'content': [{'component': 'VAlert', 'props': {'type': 'info', 'variant': 'tonal', 'text': 'TG 频道/群搜索：通过 Telegram Bot API 从公开/私密频道或群组中抓取含115分享链接的消息，支持配置多个群同时监控'}}]
+                                        }]
+                                    },
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3},
+                                             'content': [{'component': 'VSwitch', 'props': {'model': 'tg_enabled', 'label': '启用 TG 搜索'}}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 5},
+                                             'content': [{'component': 'VTextField', 'props': {"clearable": True, 'model': 'tg_bot_token', 'label': 'Bot Token', 'type': 'password', 'placeholder': '123456:ABCdef...', 'hint': '从 @BotFather 获取'}}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VTextField', 'props': {"clearable": True, 'model': 'tg_channel_ids', 'label': '群/频道 ID', 'placeholder': '-100123456,-100789012', 'hint': '多个用逗号分隔；留空则监听 Bot 所在所有群'}}]}
+                                        ]
+                                    },
+                                ]}  # end VExpansionPanelText
+                            ]  # end VExpansionPanel content
+                        },  # end VExpansionPanel (搜索源)
+                        {
+                            'component': 'VExpansionPanel',
+                            'content': [
+                                {'component': 'VExpansionPanelTitle', 'text': '📨 TG 自动转发'},
+                                {'component': 'VExpansionPanelText', 'content': [
+                                    {
+                                        'component': 'VRow',
+                                        'content': [{
+                                            'component': 'VCol',
+                                            'props': {'cols': 12},
+                                            'content': [{'component': 'VAlert', 'props': {'type': 'info', 'variant': 'tonal', 'text': 'TG 自动转发：将私密群/频道中的消息实时转发到目标群。Bot 必须在来源群/频道为管理员才能读取消息。公开 TG 频道走 PanSou 搜索，无需在此配置。'}}]
+                                        }]
+                                    },
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3},
+                                             'content': [{'component': 'VSwitch', 'props': {'model': 'tg_forward_enabled', 'label': '启用自动转发'}}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 5},
+                                             'content': [{'component': 'VTextField', 'props': {'model': 'tg_forward_target', 'label': '目标群 ID', 'placeholder': '-1004457138334', 'hint': '消息转发到的目标群组 ID'}}]}
+                                        ]
+                                    },
+                                ]}  # end VExpansionPanelText
+                            ]  # end VExpansionPanel content
+                        }]  # end VExpansionPanels (搜索源 + 转发)
+                    },  # end VExpansionPanels (搜索源模块)
                     # 风控防护说明
                     {
                         'component': 'VRow',
@@ -415,10 +428,381 @@ class UIConfig:
                             'content': [{'component': 'VSelect', 'props': {'model': 'include_subscribes', 'label': '指定订阅（指定模式下生效：仅勾选的订阅由本插件处理）',
                                 'multiple': True, 'chips': True, 'clearable': True, 'closable-chips': True, 'items': subscribe_options}}]
                         }]
-                    }
+                    },
+                    # 规则自动填充（内置SubscribeGroup）
+                    {
+                        'component': 'VRow',
+                        'content': [{
+                            'component': 'VCol',
+                            'props': {'cols': 12},
+                            'content': [{'component': 'VAlert', 'props': {'type': 'info', 'variant': 'tonal', 'text': '规则自动填充（内置 SubscribeGroup）：新增订阅时自动填充过滤规则组和正则过滤。按二级分类自由配置，一行一条。格式：分类名,规则组名,包含正则,排除正则（逗号分隔）。分类名自由输入，规则组名手动填入（参考下方可用列表）。留空字段也要写逗号占位，正则内的 OR 用单竖线 |。'}}]
+                        }]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 2},
+                             'content': [{'component': 'VSwitch', 'props': {'model': 'subscribe_auto_fill', 'label': '启用', 'hint': '新增订阅时自动填充过滤规则组+正则'}}]},
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 10},
+                             'content': [{'component': 'VTextarea', 'props': {
+                                 'model': 'subscribe_category_rules',
+                                 'label': '二级分类规则映射（一行一条）',
+                                 'placeholder': '国产剧,电视剧非杜比画质优先,,\n综艺,综艺正片非杜比画质优先,正片,花絮|预告|幕后',
+                                 'hint': '每行格式：分类名,规则组名,包含正则,排除正则（用英文逗号 , 分隔）。逗号用于分隔字段，正则内的 OR 用单竖线 |。留空字段也要写逗号占位。',
+                                 'persistent-hint': True,
+                                 'clearable': True,
+                                 'rows': 6,
+                                 'auto-grow': True
+                             }}]}
+                        ]
+                    },
+                    # 动态显示可用规则组
+                    {
+                        'component': 'VRow',
+                        'content': [{
+                            'component': 'VCol',
+                            'props': {'cols': 12},
+                            'content': [{'component': 'VAlert', 'props': {
+                                'type': 'info',
+                                'variant': 'tonal',
+                                'text': f'📋 当前MP中可用的规则组（填规则组名时参考）：{chr(10).join(available_rule_groups) if available_rule_groups else "（暂无，请先在MP规则设置中创建自定义规则组）"}',
+                                'dismissible': True
+                            }}]
+                        }]
+                    },
+                    # 洗版模块（可折叠）
+                    {
+                        'component': 'VExpansionPanels',
+                        'props': {'variant': 'accordion', 'multiple': True},
+                        'content': [{
+                            'component': 'VExpansionPanel',
+                            'content': [
+                                {'component': 'VExpansionPanelTitle', 'text': '🔄 洗版升级配置'},
+                                {'component': 'VExpansionPanelText', 'content': [
+                                    # 洗版开关：网盘洗版 / PT洗版
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VSwitch', 'props': {
+                                                 'model': 'enable_cloud_upgrade', 'label': '网盘洗版',
+                                                 'hint': '115转存后自动扫本地strm，与episode_priority比对评分。发现更高分版本且层级差足够时，删除115网盘旧文件（回收站）并保留新高分文件。',
+                                                 'persistent-hint': True
+                                             }}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VSwitch', 'props': {
+                                                 'model': 'enable_pt_upgrade', 'label': 'PT洗版',
+                                                 'hint': 'PT下载后自动扫本地strm并与episode_priority比对。评分机制：匹配第1条优先级规则→100分，末条→60分，中间等差。旧文件→回收站，转存新文件。内置规则自动填充+4套预设规则组可配合使用。',
+                                                 'persistent-hint': True
+                                             }}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VSwitch', 'props': {
+                                                 'model': 'auto_best_version', 'label': '自动开启原生洗版',
+                                                 'hint': '（PT洗版子开关）打开后自动将所有电视剧订阅的best_version置为开启，无需逐个手动打开。关闭时仅已手动开启的订阅生效。',
+                                                 'persistent-hint': True
+                                             }}]},
+                                        ]
+                                    },
+                                    # 独立洗版订阅选择
+                                    {
+                                        'component': 'VRow',
+                                        'content': [{
+                                            'component': 'VCol',
+                                            'props': {'cols': 12},
+                                            'content': [{
+                                                'component': 'VSelect',
+                                                'props': {
+                                                    'model': 'upgrade_subscribe_ids',
+                                                    'label': '单独开启洗版的订阅（勾选即开启原生洗版）',
+                                                    'items': UIConfig.get_subscribe_options_grouped(),
+                                                    'multiple': True,
+                                                    'chips': True,
+                                                    'clearable': True,
+                                                    'closable-chips': True,
+                                                    'hint': '勾选的订阅会开启原生洗版，网盘洗版/PT洗版仅对这些订阅执行洗版操作。可点击输入框展开二级选择（电影订阅/电视剧订阅）。保存配置时自动对已选订阅的已有转存记录评分并写入episode_priority。',
+                                                    'persistent-hint': True,
+                                                    'no-data-text': '正在加载订阅列表...'
+                                                }
+                                            }]
+                                        }]
+                                    },
+                                    # 网盘洗版目录映射
+                                    # 第一行：电视剧
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VTextField', 'props': {
+                                                 'model': 'cloud_tv_local_dir', 'label': '本地strm电视剧',
+                                                 'placeholder': '/media/电视剧',
+                                                 'hint': '与115网盘目录层级结构保持一致可免API搜索，否则需开启下方删除开关并触发API',
+                                                 'persistent-hint': True, 'clearable': True
+                                             }}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VTextField', 'props': {
+                                                 'model': 'cloud_tv_remote_dir', 'label': '网盘电视剧',
+                                                 'placeholder': '/视频',
+                                                 'hint': '与本地strm目录层级一致可免搜索，不一致开启删除开关后增加请求可能触发风控',
+                                                 'persistent-hint': True, 'clearable': True
+                                             }}]},
+                                        ]
+                                    },
+                                    # 第二行：电影
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VTextField', 'props': {
+                                                 'model': 'cloud_movie_local_dir', 'label': '本地strm电影',
+                                                 'placeholder': '/media/电影',
+                                                 'hint': '与115网盘目录层级结构保持一致可免API搜索，否则需开启下方删除开关并触发API',
+                                                 'persistent-hint': True, 'clearable': True
+                                             }}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VTextField', 'props': {
+                                                 'model': 'cloud_movie_remote_dir', 'label': '网盘电影',
+                                                 'placeholder': '/电影',
+                                                 'hint': '与本地strm目录层级一致可免搜索，不一致开启删除开关后增加请求可能触发风控',
+                                                 'persistent-hint': True, 'clearable': True
+                                             }}]},
+                                        ]
+                                    },
+                                    # 洗版参数
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6},
+                                             'content': [{'component': 'VSlider', 'props': {
+                                                 'model': 'upgrade_threshold', 'label': '最低洗版提升分',
+                                                 'min': 0, 'max': 20, 'step': 1,
+                                                 'thumb-label': True,
+                                                 'hint': '候选文件 pri_order 必须超过现有文件至少N分才触发洗版/放行下载（统一MP规则组评分，93-100档）。默认3=差一档才洗版（93→97→100）。越大越保守。',
+                                                 'persistent-hint': True
+                                             }}]},
+                                        ]
+                                    },
+                                    # 进度自愈
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6},
+                                             'content': [{'component': 'VTextField', 'props': {
+                                                 'model': 'self_heal_interval', 'label': '进度自愈间隔（分钟）', 'type': 'number',
+                                                 'placeholder': '10', 'hint': '自动清理episode_priority中本地strm已不存在的记录。设为0关闭自愈。',
+                                                 'persistent-hint': True, 'clearable': True
+                                             }}]},
+                                        ]
+                                    },
+                                    # PT洗版防抖
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VTextField', 'props': {
+                                                 'model': 'upgrade_debounce_seconds', 'label': 'PT洗版防抖间隔（秒）', 'type': 'number',
+                                                 'placeholder': '600',
+                                                 'hint': '媒体入库事件触发的PT洗版扫描最小间隔，默认600秒（10分钟），避免逐文件触发刷屏。',
+                                                 'persistent-hint': True, 'clearable': True
+                                             }}]},
+                                        ]
+                                    },
+                                    # ↓↓↓ 以下为洗版关联配置 ↓↓↓
+
+                                    # MP过滤规则管理
+                                    {
+                                        'component': 'VRow',
+                                        'content': [{
+                                            'component': 'VCol',
+                                            'props': {'cols': 12},
+                                            'content': [{
+                                                'component': 'VAlert',
+                                                'props': {
+                                                    'type': 'info',
+                                                    'variant': 'tonal',
+                                                    'text': 'MP过滤规则管理：向MP系统注册VIVID/10BIT/60FPS/HQ四条自定义规则，'
+                                                            '让订阅优先级规则组中可以正常使用 Vivid、10bit、60FPS 等规则ID。'
+                                                            '同时自动应用下方选择的优先级规则组预设。'
+                                                            '保存配置即自动应用，也可在插件页面手动触发。'
+                                                }
+                                            }]
+                                        }]
+                                    },
+                                    {
+                                        'component': 'VRow',
+                                        'content': [{
+                                            'component': 'VCol',
+                                            'props': {'cols': 12},
+                                            'content': [{
+                                                'component': 'VSwitch',
+                                                'props': {
+                                                    'model': 'auto_register_rules',
+                                                    'label': '注册自定义规则+预设规则组到MP',
+                                                    'hint': '开启后，插件向MP注册VIVID/10BIT/60FPS/HQ四条自定义规则，并自动应用所选优先级规则组预设。关闭则不动MP原有规则。默认关闭，按需开启。',
+                                                    'persistent-hint': True
+                                                }
+                                            }]
+                                        }]
+                                    },
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VTextField', 'props': {
+                                                 'model': 'vivid_pattern', 'label': 'VIVID自定义规则正则',
+                                                 'placeholder': r'HDR[._ ]?[Vv]ivid|菁彩影像|HDRVivid', 'clearable': True,
+                                                 'hint': 'MP自定义规则ID: VIVID。匹配种子标题中含Vivid/菁彩影像的资源',
+                                                 'persistent-hint': True
+                                             }}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VTextField', 'props': {
+                                                 'model': 'bit_rate_pattern', 'label': '10BIT自定义规则正则',
+                                                 'placeholder': r'10bit|12bit|10-bit|12-bit', 'clearable': True,
+                                                 'hint': 'MP自定义规则ID: 10BIT。匹配10bit/12bit色深的资源',
+                                                 'persistent-hint': True
+                                             }}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VTextField', 'props': {
+                                                 'model': 'frame_rate_pattern', 'label': '60FPS自定义规则正则',
+                                                 'placeholder': r'60fps|120fps|60帧|120帧|高帧率', 'clearable': True,
+                                                 'hint': 'MP规则ID: 60FPS（覆盖内置规则）。匹配高帧率资源',
+                                                 'persistent-hint': True
+                                             }}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4},
+                                             'content': [{'component': 'VTextField', 'props': {
+                                                 'model': 'hq_pattern', 'label': 'HQ自定义规则正则',
+                                                 'placeholder': r'\bHQ\b|高码|高码率|HQB|High.?Bitrate', 'clearable': True,
+                                                 'hint': 'MP规则ID: HQ。匹配HQ/高码率资源',
+                                                 'persistent-hint': True
+                                             }}]},
+                                        ]
+                                    },
+                    # 预设规则组说明
+                    {
+                        'component': 'VRow',
+                        'content': [{
+                            'component': 'VCol',
+                            'props': {'cols': 12},
+                            'content': [{
+                                'component': 'VAlert',
+                                'props': {
+                                    'type': 'success',
+                                    'variant': 'tonal',
+                                    'text': '预设规则组：保存配置时自动创建4套优先级规则组到MP系统：'
+                                            '「电视剧非杜比画质优先」「电视剧杜比画质优先」「电影含杜比画质优先」「电影非杜比画质优先」。'
+                                            '可在MP的「订阅规则」页面中查看和使用。'
+                                }
+                            }]
+                        }]
+                    },
+                                    # 命名规则管理
+                                    {
+                                        'component': 'VRow',
+                                        'content': [{
+                                            'component': 'VCol',
+                                            'props': {'cols': 12},
+                                            'content': [{
+                                                'component': 'VAlert',
+                                                'props': {
+                                                    'type': 'info',
+                                                    'variant': 'tonal',
+                                                    'text': '命名规则管理：修改MP的电影/电视剧文件重命名模板。'
+                                                            '开启"自动应用命名规则"后保存配置即自动写入MP系统设置。'
+                                                            '模板语法：Jinja2模板，可用 title/year/tmdbid/videoFormat/edition/audioCodec/videoCodec/hdr/releaseGroup/fileExt/season/episode/season_episode/episode_title 等变量。'
+                                                }
+                                            }]
+                                        }]
+                                    },
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6},
+                                             'content': [{'component': 'VTextarea', 'props': {
+                                                 'model': 'tv_rename_format', 'label': '电视剧重命名模板',
+                                                 'rows': 4, 'clearable': True,
+                                                 'hint': '保存即应用（需开启开关）。修改前建议备份当前模板。',
+                                                 'persistent-hint': True
+                                             }}]},
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6},
+                                             'content': [{'component': 'VTextarea', 'props': {
+                                                 'model': 'movie_rename_format', 'label': '电影重命名模板',
+                                                 'rows': 4, 'clearable': True,
+                                                 'hint': '保存即应用（需开启开关）。修改前建议备份当前模板。',
+                                                 'persistent-hint': True
+                                             }}]},
+                                        ]
+                                    },
+                                    {
+                                        'component': 'VRow',
+                                        'content': [
+                                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3},
+                                             'content': [{'component': 'VSwitch', 'props': {
+                                                 'model': 'auto_apply_naming', 'label': '自动应用命名规则',
+                                                 'hint': '开启后保存配置自动将上方模板写入MP系统设置（立即生效）',
+                                                 'persistent-hint': True
+                                             }}]},
+                                        ]
+                                    },
+                                ]}  # end VExpansionPanelText
+                            ]  # end VExpansionPanel content
+                        }]  # end VExpansionPanel (洗版)
+                    },  # end VExpansionPanels (洗版模块)
                 ]
             }
         ]
+        # ---- 评分工具按钮 ----
+        form_schema.append({
+            'component': 'VCard',
+            'props': {'variant': 'outlined', 'class': 'mt-4'},
+            'content': [{
+                'component': 'VRow',
+                'props': {'class': 'mt-2'},
+                'content': [
+                    {
+                        'component': 'VCol',
+                        'props': {'cols': 6, 'class': 'text-center'},
+                        'content': [{
+                            'component': 'VBtn',
+                            'props': {'color': 'primary', 'variant': 'outlined', 'size': 'small', 'prepend-icon': 'mdi-refresh'},
+                            'text': '整理记录评分（合并）',
+                            'events': {
+                                'click': {
+                                    'api': f'/plugin/P115StrgmSub/batch_re_score?apikey={settings.API_TOKEN}',
+                                    'method': 'post'
+                                }
+                            }
+                        }]
+                    },
+                    {
+                        'component': 'VCol',
+                        'props': {'cols': 6, 'class': 'text-center'},
+                        'content': [{
+                            'component': 'VBtn',
+                            'props': {'color': 'warning', 'variant': 'outlined', 'size': 'small', 'prepend-icon': 'mdi-delete-restore'},
+                            'text': '强制重评分（覆盖+清理脏数据）',
+                            'events': {
+                                'click': {
+                                    'api': f'/plugin/P115StrgmSub/force_re_score?apikey={settings.API_TOKEN}',
+                                    'method': 'post'
+                                }
+                            }
+                        }]
+                    }
+                ]
+            },
+            {
+                'component': 'VRow',
+                'props': {'class': 'mt-2'},
+                'content': [{
+                    'component': 'VCol',
+                    'props': {'cols': 12},
+                    'content': [{
+                        'component': 'VAlert',
+                        'props': {'type': 'info', 'variant': 'tonal',
+                                 'text': '「整理记录评分」基于转存记录评分并合并现有数据；「强制重评分」清空旧评分，重新扫描磁盘strm文件打分并覆盖，同时清理无效脏数据。'}
+                    }]
+                }]
+            }]
+        })
 
         default_config = {
             "enabled": False,
@@ -427,11 +811,6 @@ class UIConfig:
             "only_115": True,
             "cron": "30 2,10,18 * * *",
 
-            "unblock_site_ids": [],
-            "unblock_site_names": [],
-            "unblock_window_hours": 1,
-            "system_subscribe_window_hours": 1,
-            "unblock_delay_minutes": 5,
 
             "save_path": "/我的接收/MoviePilot/TV",
             "movie_save_path": "/我的接收/MoviePilot/Movie",
@@ -462,14 +841,50 @@ class UIConfig:
             "hdhive_cookie": "",
             "hdhive_auto_refresh": True,
             "hdhive_refresh_before": 86400,
+            "tg_enabled": False,
+            "tg_bot_token": "",
+            "tg_channel_ids": "",
+            "tg_forward_enabled": False,
+            "tg_forward_target": "",
             "search_source_order": [],
             "subscribe_filter_mode": "exclude",
             "exclude_subscribes": [],
             "include_subscribes": [],
             "block_system_subscribe": False,
+            "auto_best_version": False,
+            "block_start_time": "18:00",
+            "block_end_time": "23:59",
+            "unblock_start_time": "00:00",
+            "unblock_end_time": "17:30",
             "max_transfer_per_sync": 50,
             "batch_size": 20,
-            "skip_other_season_dirs": True
+            "skip_other_season_dirs": True,
+            "enable_cloud_upgrade": False,
+            "enable_pt_upgrade": False,
+            "upgrade_debounce_seconds": 600,
+            "auto_best_version": False,
+            "upgrade_subscribe_ids": [],
+            "cloud_tv_local_dir": "",
+            "cloud_tv_remote_dir": "",
+            "cloud_movie_local_dir": "",
+            "cloud_movie_remote_dir": "",
+            "min_upgrade_tiers": 2,
+            "upgrade_threshold": 3,
+            "self_heal_interval": 10,
+            "frame_rate_pattern": r"60fps|120fps|60帧|120帧|高帧率",
+            "bit_rate_pattern": r"10bit|12bit|10-bit|12-bit",
+            "vivid_pattern": r"HDR[._ ]?[Vv]ivid|菁彩影像|HDRVivid",
+            "hq_pattern": r"\bHQ\b|高码|高码率|HQB|High.?Bitrate",
+            "auto_register_rules": False,
+            "tv_rule_group_preset": "none",
+            "tv_rule_group_custom": "",
+            "movie_rule_group_preset": "none",
+            "movie_rule_group_custom": "",
+            "tv_rename_format": "{{title}}{% if year %} ({{year}}){% endif %} {tmdbid={{tmdbid}}}/Season {{'%02d'|format(season|int)}}/{{title}}{% if year %} ({{year}}){% endif %} - {{season_episode}} - {% if episode_title %}{{episode_title}}{% else %}第 {{episode}} 集{% endif %} - {{videoFormat}}{% if edition %}.{{edition}}{% endif %}{% if hdr %}.{{hdr}}{% endif %}{% if videoCodec %}.{{videoCodec}}{% endif %}{% if audioCodec %}.{{audioCodec}}{% endif %}{% if releaseGroup %} - {{releaseGroup}}{% endif %}{{fileExt}}",
+            "movie_rename_format": "{{title}}{% if year %} ({{year}}){% endif %} {tmdbid={{tmdbid}}}/{{title}}{% if year %} ({{year}}){% endif %}{% if videoFormat %} - {{videoFormat}}{% if edition %}.{{edition}}{% endif %}{% if audioCodec %}.{{audioCodec}}{% endif %}{% if videoCodec %}.{{videoCodec}}{% endif %}{% endif %}{% if releaseGroup %} - {{releaseGroup}}{% endif %}{{fileExt}}",
+            "auto_apply_naming": False,
+            "subscribe_auto_fill": False,
+            "subscribe_category_rules": "国产剧,电视剧非杜比画质优先,,\n欧美剧,电视剧非杜比画质优先,,\n日韩剧,电视剧非杜比画质优先,,\n国漫,电视剧非杜比画质优先,,\n日番,电视剧杜比画质优先,,\n纪录片,电视剧非杜比画质优先,,\n儿童,电视剧非杜比画质优先,,\n动画电影,电影杜比画质优先,,\n华语电影,电影非杜比画质优先,,\n外语电影,电影杜比画质优先,,\n未分类_TV,电视剧非杜比画质优先,,\n未分类_Movie,电影非杜比画质优先,,",
         }
 
         return form_schema, default_config

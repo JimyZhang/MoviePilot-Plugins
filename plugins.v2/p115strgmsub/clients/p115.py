@@ -947,3 +947,44 @@ class P115ClientManager:
     def reset_api_call_count(self):
         """重置 API 调用计数器"""
         self._api_call_count = 0
+
+    def delete_file(self, file_id: int) -> bool:
+        """删除115文件（移入回收站）
+
+        实测验证：p115client 的 fs_delete 调用 POST /rb/delete，
+        删除后文件会出现在回收站（recyclebin_list 可查），并非永久删除。
+        真正清空回收站的是 recyclebin_clean（/rb/secret_del），切勿误用。
+
+        :param file_id: 文件ID
+        :return: 是否成功
+        """
+        if not self.client:
+            return False
+        try:
+            self.rate_limiter.wait()
+            self._api_call_count += 1
+            resp = self.client.fs_delete(file_id)
+            if resp and resp.get("state"):
+                return True
+            logger.warning(f"删除115文件失败(移入回收站): {resp}")
+            return False
+        except Exception as e:
+            logger.error(f"删除115文件异常: {e}")
+            return False
+
+    def find_file_in_dir(self, dir_path: str, filename: str) -> Optional[dict]:
+        """在指定115目录下查找文件名匹配的文件
+
+        :param dir_path: 115目录路径
+        :param filename: 要查找的文件名（不含ext）
+        :return: 匹配的文件信息dict，未找到返回None
+        """
+        files = self.list_files(dir_path)
+        MEDIA_EXTS = {'.mkv', '.mp4', '.ts', '.avi', '.mov', '.wmv', '.flv', '.webm', '.iso', '.m2ts'}
+        for f in files:
+            fname = f.get("name", "")
+            name_no_ext = fname.rsplit('.', 1)[0] if '.' in fname else fname
+            ext = f".{fname.rsplit('.', 1)[-1].lower()}" if '.' in fname else ""
+            if name_no_ext == filename and ext in MEDIA_EXTS:
+                return f
+        return None

@@ -1,7 +1,8 @@
 """
 搜索处理模块
-负责所有搜索相关逻辑：HDHive、Nullbr、PanSou
+负责所有搜索相关逻辑：HDHive、Nullbr、PanSou、TG频道
 """
+import os
 from typing import Optional, List, Dict, Any
 
 from app.core.config import settings
@@ -32,7 +33,12 @@ class SearchHandler:
         hdhive_max_points_per_sub: int = 20,
         only_115: bool = True,
         pansou_channels: str = "",
-        search_source_order: Optional[List[str]] = None
+        search_source_order: Optional[List[str]] = None,
+        tg_bot_token: str = "",
+        tg_channel_ids: str = "",
+        tg_enabled: bool = False,
+        tg_shared_buffer: Optional[List] = None,
+        tg_shared_buffer_lock: Any = None
     ):
         """
         初始化搜索处理器
@@ -52,6 +58,9 @@ class SearchHandler:
         :param pansou_channels: PanSou 搜索频道
         :param search_source_order: 自定义搜索源优先级列表，如 ["pansou", "hdhive"]；
                                     为空时使用默认优先级 Nullbr > HDHive > PanSou
+        :param tg_bot_token: Telegram Bot Token
+        :param tg_channel_ids: Telegram 频道/群 ID 列表，多个用逗号分隔（私密群用 -100 开头的 ID）
+        :param tg_enabled: 是否启用 TG 频道搜索
         """
         self._pansou_client = pansou_client
         self._nullbr_client = nullbr_client
@@ -74,6 +83,19 @@ class SearchHandler:
         self._only_115 = only_115
         self._pansou_channels = pansou_channels
         self._search_source_order = search_source_order or []
+        self._tg_enabled = tg_enabled
+        self._tg_bot_token = tg_bot_token
+        # 解析多个 TG 群/频道 ID（逗号分隔）
+        if tg_channel_ids:
+            self._tg_channel_ids = [
+                cid.strip() for cid in tg_channel_ids.split(",") if cid.strip()
+            ]
+        else:
+            self._tg_channel_ids = []
+        self._tg_shared_buffer = tg_shared_buffer if tg_shared_buffer is not None else []
+        self._tg_shared_buffer_lock = tg_shared_buffer_lock
+        self._tg_message_cache = None
+        self._tg_last_update_id = 0  # 用于 getUpdates offset 追踪，避免重复读取
 
     def get_enabled_sources(self) -> List[str]:
         """
@@ -103,6 +125,10 @@ class SearchHandler:
         # PanSou
         if self._pansou_enabled and self._pansou_client:
             available.append("pansou")
+
+        # TG频道
+        if self._tg_enabled and self._tg_bot_token:
+            available.append("tg")
 
         # 应用用户自定义优先级
         if self._search_source_order:
@@ -169,6 +195,8 @@ class SearchHandler:
                 return self._search_pansou_movie(mediainfo)
             else:
                 return self._search_pansou_tv(mediainfo, season)
+        elif source == "tg":
+            return self._search_tg(mediainfo, media_type, season)
         else:
             logger.warning(f"未知的搜索源: {source}")
             return []
@@ -625,4 +653,230 @@ class SearchHandler:
         except Exception as e:
             logger.error(f"HDHive (API) 解锁异常: {e}")
 
-        return None
+    # ============================================================
+    # TG 频道/群搜索（支持多群、公开+私密）
+    # ============================================================
+
+    @staticmethod
+    def _get_tg_cache_path():
+        """TG消息持久化缓存文件路径"""
+        return os.path.join(os.path.dirname(os.path.dirname(__file__)), 'tg_messages.json')
+
+    def _load_tg_message_cache(self) -> List[Dict]:
+        """从文件加载持久化TG消息缓存"""
+        import json
+        path = self._get_tg_cache_path()
+        try:
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                if isinstance(data, list):
+                    return data
+        except Exception as e:
+            logger.error(f"加载TG消息缓存失败: {e}")
+        return []
+
+    def _save_tg_message_cache(self, messages: List[Dict]):
+        """保存TG消息到持久化缓存文件"""
+        import json
+        path = self._get_tg_cache_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(messages, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"保存TG消息缓存失败: {e}")
+
+    def reset_tg_cache(self):
+        """清除本轮内存缓存，下次sync从文件+API重新拉取"""
+        self._tg_message_cache = None
+
+    def _fetch_tg_channel_messages(self) -> List[Dict]:
+        """
+        拉取TG频道/群最新消息（持久化文件缓存模式）
+        每轮sync都从TG API拉取新消息（不传offset，永不消耗队列）
+        新旧消息合并去重后保存到文件，重启容器不丢失
+
+        :return: 消息列表，格式: [{"text": "消息文本", "links": [...], "msg_id": 123, "chat_id": -100..., "chat_title": "群名"}]
+        """
+        if self._tg_message_cache is not None:
+            return self._tg_message_cache
+
+        import requests
+        import re
+        import json
+
+        self._tg_message_cache = []
+
+        # 1. 加载已有的持久化缓存
+        cached_messages = self._load_tg_message_cache()
+        cached_keys = set()
+        for m in cached_messages:
+            msg_id = m.get("msg_id") or m.get("message_id")
+            chat_id = m.get("chat_id", "")
+            if msg_id:
+                cached_keys.add(f"{chat_id}:{msg_id}")
+
+        new_messages = []
+
+        # 2. 优先从转发线程的共享缓冲区读取（避免 getUpdates 409 冲突）
+        if self._tg_shared_buffer_lock is not None:
+            try:
+                with self._tg_shared_buffer_lock:
+                    buffer_snapshot = list(self._tg_shared_buffer)
+            except Exception:
+                buffer_snapshot = []
+        else:
+            buffer_snapshot = []
+
+        if buffer_snapshot:
+            # 从共享缓冲区读取消息，不再调 API
+            configured_ids = set(self._tg_channel_ids) if self._tg_channel_ids else set()
+            seen_links_in_new = set()
+            for entry in buffer_snapshot:
+                chat_id = entry.get("chat_id", "")
+                msg_id = entry.get("message_id")
+                chat_title = entry.get("chat_title", "")
+
+                # Chat ID 过滤
+                if configured_ids and chat_id not in configured_ids:
+                    continue
+
+                # 与缓存去重
+                key = f"{chat_id}:{msg_id}"
+                if key in cached_keys:
+                    continue
+
+                # 合并文本和 caption
+                text = (entry.get("text") or "") + "\n" + (entry.get("caption") or "")
+                text = text.strip()
+                if not text:
+                    continue
+
+                # 提取 115 链接
+                links = re.findall(
+                    r'https?://(?:115|115cdn|anxia)\.com/s/\w+(?:\?password=[\w*]+)?',
+                    text
+                )
+
+                # 补提取码
+                pwd_match = re.search(r'提取码\s*[:：]\s*(\w+)', text)
+                if pwd_match:
+                    pwd_val = pwd_match.group(1)
+                    for i, link in enumerate(links):
+                        if '?password=' not in link and '&password=' not in link:
+                            links[i] = link + '?password=' + pwd_val
+
+                # entities text_link 提取
+                for entity_key in ('caption_entities', 'entities'):
+                    for entity in entry.get(entity_key, []):
+                        if entity.get('type') == 'text_link':
+                            entity_url = entity.get('url', '')
+                            if entity_url and ('115.com/s/' in entity_url or '115cdn.com/s/' in entity_url or 'anxia.com/s/' in entity_url):
+                                links.append(entity_url)
+
+                # 去重 URL
+                unique_links = []
+                for link in links:
+                    if link not in seen_links_in_new:
+                        seen_links_in_new.add(link)
+                        unique_links.append(link)
+
+                if unique_links:
+                    new_messages.append({
+                        "text": text,
+                        "links": unique_links,
+                        "msg_id": msg_id,
+                        "chat_id": chat_id,
+                        "chat_title": chat_title
+                    })
+
+        # 3. 合并新旧消息，新消息放前面
+        if new_messages:
+            all_messages = new_messages + cached_messages
+            # 统计并发日志
+            chat_stats = {}
+            for m in all_messages:
+                ct = m["chat_title"]
+                chat_stats[ct] = chat_stats.get(ct, 0) + 1
+            stats_str = ", ".join(f"{ct}: {n}条" for ct, n in chat_stats.items())
+            logger.info(f"TG拉取到 {len(new_messages)} 条新消息，缓存共 {len(all_messages)} 条（{stats_str}）")
+            # 保存到文件（持久化！）
+            self._save_tg_message_cache(all_messages)
+        else:
+            stats_str = ""
+            if cached_messages:
+                chat_stats = {}
+                for m in cached_messages:
+                    ct = m["chat_title"]
+                    chat_stats[ct] = chat_stats.get(ct, 0) + 1
+                stats_str = "（" + ", ".join(f"{ct}: {n}条" for ct, n in chat_stats.items()) + "）"
+            logger.info(f"TG暂无新消息，使用缓存 {len(cached_messages)} 条{stats_str}")
+            all_messages = cached_messages
+
+        self._tg_message_cache = all_messages
+        return all_messages
+
+    def _search_tg(
+        self,
+        mediainfo: MediaInfo,
+        media_type: MediaType,
+        season: Optional[int] = None
+    ) -> List[Dict]:
+        """
+        TG频道/群搜索——检查群消息是否有匹配当前订阅的115分享链接
+
+        :param mediainfo: 媒体信息
+        :param media_type: 媒体类型
+        :param season: 季号
+        :return: 匹配的 115 网盘资源列表
+        """
+        if not self._tg_enabled or not self._tg_bot_token:
+            return []
+
+        messages = self._fetch_tg_channel_messages()
+        if not messages:
+            return []
+
+        # 用订阅信息生成搜索关键词（小写化）
+        keywords = set()
+        if mediainfo.title:
+            keywords.add(mediainfo.title.lower())
+        if mediainfo.original_title:
+            keywords.add(mediainfo.original_title.lower())
+        if mediainfo.names:
+            for name in mediainfo.names:
+                if name:
+                    keywords.add(str(name).lower())
+        if mediainfo.original_name:
+            keywords.add(mediainfo.original_name.lower())
+        if mediainfo.en_title:
+            keywords.add(mediainfo.en_title.lower())
+
+        if not keywords:
+            return []
+
+        logger.info(f"TG频道/群搜索 {mediainfo.title}，关键词: {keywords}")
+
+        # 遍历消息匹配关键词
+        matched_links = []
+        for msg in messages:
+            text_lower = msg["text"].lower()
+            if any(kw in text_lower for kw in keywords if kw):
+                matched_links.extend(msg["links"])
+
+        if not matched_links:
+            logger.info(f"TG频道/群未匹配到 {mediainfo.title}")
+            return []
+
+        # 去重
+        matched_links = list(set(matched_links))
+        logger.info(
+            f"TG频道/群为 {mediainfo.title} 匹配到 {len(matched_links)} 个分享链接: "
+            f"{[l[:30] + '...' for l in matched_links[:3]]}"
+        )
+
+        return [
+            {"url": link, "title": mediainfo.title or "", "source": "tg"}
+            for link in matched_links
+        ]
