@@ -27,7 +27,7 @@ class Btsow115Offline(_PluginBase):
     plugin_name = "BTSOW 115离线下载"
     plugin_desc = "根据消息关键字从 BTSOW 搜索磁力链接，支持选择后使用 115 网盘离线下载。"
     plugin_icon = "cloud_download.png"
-    plugin_version = "1.0.23"
+    plugin_version = "1.0.24"
     plugin_author = "jojo"
     author_url = ""
     plugin_config_prefix = "btsow115offline_"
@@ -781,17 +781,17 @@ class Btsow115Offline(_PluginBase):
                 logger.info(f"Btsow115Offline 保存目录解析完成: cid={cid}")
 
             # 添加离线下载任务
-            # 参数: urls - 磁力链接, wp_path_id - 目标目录ID
-            # 注: p115client 0.0.9.x 起 offline_add_url 被重命名为 clouddownload_task_add_urls，
-            # 且 payload 字段由 "url" 改为 "urls"
-            logger.info(f"Btsow115Offline 正在调用 clouddownload_task_add_urls: cid={cid}")
+            # 注: p115client 0.0.9.x 起 cookie 版 P115Client 的 offline_add_url
+            # 被重命名为 clouddownload_task_add_url（单个链接，字段为 "url"），
+            # 端点为 clouddownload.115.com/lixianssp/?ac=add_task_url
+            logger.info(f"Btsow115Offline 正在调用 clouddownload_task_add_url: cid={cid}")
             if cid:
-                result = client.clouddownload_task_add_urls({
-                    "urls": magnet,
+                result = client.clouddownload_task_add_url({
+                    "url": magnet,
                     "wp_path_id": cid
                 })
             else:
-                result = client.clouddownload_task_add_urls(magnet)
+                result = client.clouddownload_task_add_url(magnet)
             logger.info(f"Btsow115Offline 115 离线下载 API 返回: {result}")
 
             if result.get("state") or result.get("errno") == 0:
